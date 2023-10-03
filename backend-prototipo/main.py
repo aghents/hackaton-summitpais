@@ -4,12 +4,13 @@ from typing import Union
 from asyncpg import Connection
 from crud import get_session, get_transcripcion
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
-from langchain.chains import LLMChain
+from fastapi import Depends, FastAPI, WebSocket
+from langchain.chains import LLMChain, RetrievalQA
 from langchain.chat_models import AzureChatOpenAI
 from langchain.prompts.chat import (ChatPromptTemplate,
                                     HumanMessagePromptTemplate,
                                     SystemMessagePromptTemplate)
+from langchain.schema import Document
 from pydantic import BaseModel
 
 load_dotenv()
@@ -99,3 +100,51 @@ async def ask_question(
     chain = LLMChain(llm=model, prompt=chat_prompt)
     response = chain.run(question.query)
     return {"answer": response}
+
+
+@app.websocket("/summary/{id}/ws")
+async def websocket_endpoint(
+    websocket: WebSocket, id: str, conn: Connection = Depends(get_session)
+):
+    await websocket.accept()
+    transcripcion, descripcion = await get_transcripcion(id, conn)
+    # Load the summary.txt
+
+    model = AzureChatOpenAI(
+        openai_api_base=API_BASE,
+        openai_api_version=API_VERSION,
+        deployment_name="capibarai_chat35_16k",
+        openai_api_key=API_KEY,
+        openai_api_type="azure",
+    )
+
+    from langchain.text_splitter import CharacterTextSplitter
+
+    doc = Document(
+        page_content=f"Descripcion: {descripcion}. Contenido: {transcripcion}",
+        metadata={"source": "local"},
+    )
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+    texts = text_splitter.split_documents([doc])
+    from langchain.embeddings import OpenAIEmbeddings
+
+    embeddings = OpenAIEmbeddings(
+        deployment="capibarai_emb",
+        model="text-embedding-ada-002",
+        openai_api_base=API_BASE,
+        openai_api_type="azure",
+    )
+
+    from langchain.vectorstores import Chroma
+
+    db = Chroma.from_documents(texts, embeddings)
+
+    retriever = db.as_retriever()
+
+    qa = RetrievalQA.from_chain_type(llm=model, chain_type="stuff", retriever=retriever)
+    while True:
+        data = await websocket.receive_text()
+        print("Ejecutando pregunta:...")
+        result = qa.run(data)
+        print(result)
+        await websocket.send_text(f"{result}")
