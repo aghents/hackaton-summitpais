@@ -1,0 +1,15 @@
+services:
+  database:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U postgres -d ${DB_NAME}'"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - "./init.sql:/docker-entrypoint-initdb.d/db.sql"
+    ports:
+      - 5432:5432
