@@ -16,13 +16,6 @@ function App() {
         <Container>
           {/* Left Side */}
           <Navbar.Brand className="d-flex align-items-center">
-            <img
-              src="/your-logo.png"
-              alt="Logo"
-              width="30"
-              height="30"
-              className="me-2"
-            />
             <span className="fs-4">Business Name</span>
           </Navbar.Brand>
 
